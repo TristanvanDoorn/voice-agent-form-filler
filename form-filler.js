@@ -1,4 +1,5 @@
 let detectedFields = []; // Global variable to store detected form fields
+window.currentLiveKitRoom = null; // Initialize global room variable
 
 function detectFormFields() {
     const formElements = document.querySelectorAll('input, select, textarea');
@@ -46,7 +47,7 @@ function detectFormFields() {
     console.log("Detected fields:", detectedFields); // Log for verification
 }
 
-function createAgentUI() {
+function createAgentUI(agentUiUrl) { 
     // Create the agent container
     const agentContainer = document.createElement('div');
     agentContainer.id = 'agent-ui-container';
@@ -66,14 +67,13 @@ function createAgentUI() {
     widgetHeader.appendChild(closeButton);
     
     // Prepend header to container
-    agentContainer.appendChild(widgetHeader); // Appending as first child before iframe
+    agentContainer.appendChild(widgetHeader); 
 
     // Create the iframe
     const agentFrame = document.createElement('iframe');
-    agentFrame.src = 'about:blank'; // Placeholder src
+    agentFrame.src = agentUiUrl || 'about:blank'; 
     agentFrame.style.width = '100%';
-    // Height will be controlled by flex-grow
-    agentFrame.style.border = 'none'; // More specific than frameBorder=0 for CSS
+    agentFrame.style.border = 'none'; 
     
     // Append iframe to container
     agentContainer.appendChild(agentFrame);
@@ -81,14 +81,14 @@ function createAgentUI() {
     // Append container to body
     document.body.appendChild(agentContainer);
 
-    // Add CSS styles for the agent container, header, and button
+    // Add CSS styles
     const styles = `
         #agent-ui-container {
             position: fixed;
             bottom: 20px;
             right: 20px;
             width: 300px;
-            height: 400px; /* This will be the total height */
+            height: 400px; 
             border: 1px solid #ccc;
             background-color: #fff;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
@@ -100,11 +100,11 @@ function createAgentUI() {
             padding: 5px;
             background-color: #f0f0f0;
             cursor: move;
-            height: 25px; /* Fixed height for header */
+            height: 25px; 
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-sizing: border-box; /* Include padding in height */
+            box-sizing: border-box; 
         }
         #agent-widget-close-button {
             cursor: pointer;
@@ -113,9 +113,9 @@ function createAgentUI() {
             font-weight: bold;
             font-size: 16px;
         }
-        #agent-ui-container iframe { /* Style iframe to take remaining space */
+        #agent-ui-container iframe { 
             flex-grow: 1;
-            border: none; /* Ensure no internal border */
+            border: none; 
         }
     `;
 
@@ -130,28 +130,20 @@ function createAgentUI() {
 
     widgetHeader.addEventListener('mousedown', (e) => {
         isDragging = true;
-        // Calculate offset from top-left of the container
         offsetX = e.clientX - agentContainer.offsetLeft;
         offsetY = e.clientY - agentContainer.offsetTop;
-        
-        // Ensure top/left are used for positioning from now on
         agentContainer.style.right = 'auto';
         agentContainer.style.bottom = 'auto';
-        
-        widgetHeader.style.userSelect = 'none'; // Prevent text selection while dragging
-        document.body.style.cursor = 'move'; // Optional: change cursor for the whole page
+        widgetHeader.style.userSelect = 'none'; 
+        document.body.style.cursor = 'move'; 
     });
 
     document.addEventListener('mousemove', (e) => {
         if (!isDragging) return;
-        
         let newX = e.clientX - offsetX;
         let newY = e.clientY - offsetY;
-
-        // Boundary checks
         newX = Math.max(0, Math.min(newX, window.innerWidth - agentContainer.offsetWidth));
         newY = Math.max(0, Math.min(newY, window.innerHeight - agentContainer.offsetHeight));
-
         agentContainer.style.left = newX + 'px';
         agentContainer.style.top = newY + 'px';
     });
@@ -160,36 +152,36 @@ function createAgentUI() {
         if (isDragging) {
             isDragging = false;
             widgetHeader.style.userSelect = 'auto';
-            document.body.style.cursor = 'auto'; // Optional: reset page cursor
+            document.body.style.cursor = 'auto'; 
         }
     });
 }
 
-function handleIncomingFieldInstruction(payload) {
-    console.log("handleIncomingFieldInstruction received payload:", payload);
+function handleIncomingFieldInstruction(instruction) { 
+    console.log("handleIncomingFieldInstruction received instruction:", instruction);
 
     let foundFieldMetadata = null;
-    if (payload.field_type === "id") {
-        foundFieldMetadata = detectedFields.find(field => field.id === payload.field);
-    } else if (payload.field_type === "name") {
-        foundFieldMetadata = detectedFields.find(field => field.name === payload.field);
-    } else if (payload.field_type === "placeholder") {
+    if (instruction.field_type === "id") {
+        foundFieldMetadata = detectedFields.find(field => field.id === instruction.field);
+    } else if (instruction.field_type === "name") {
+        foundFieldMetadata = detectedFields.find(field => field.name === instruction.field);
+    } else if (instruction.field_type === "placeholder") {
         foundFieldMetadata = detectedFields.find(field => 
-            field.placeholder && field.placeholder.toLowerCase().includes(payload.field.toLowerCase())
+            field.placeholder && field.placeholder.toLowerCase().includes(instruction.field.toLowerCase())
         );
     }
 
     if (foundFieldMetadata && foundFieldMetadata.element) {
         const fieldElement = foundFieldMetadata.element;
-        console.log(`Field found (Type: ${payload.field_type}, Query: "${payload.field}"). Will fill with value: "${payload.value}"`, foundFieldMetadata);
+        console.log(`Field found (Type: ${instruction.field_type}, Query: "${instruction.field}"). Will fill with value: "${instruction.value}"`, foundFieldMetadata);
         
-        fieldElement.value = payload.value;
+        fieldElement.value = instruction.value;
         fieldElement.dispatchEvent(new Event('input', { bubbles: true }));
         fieldElement.dispatchEvent(new Event('change', { bubbles: true }));
         
         console.log(`Field "${foundFieldMetadata.label || foundFieldMetadata.name || foundFieldMetadata.id}" filled and events dispatched.`);
 
-        if (payload.should_submit === true) {
+        if (instruction.should_submit === true) {
             console.log("Form submission requested.");
             const parentForm = fieldElement.closest('form');
             if (parentForm) {
@@ -207,50 +199,90 @@ function handleIncomingFieldInstruction(payload) {
         }
 
     } else {
-        console.log(`Field not found for field_type "${payload.field_type}" and field "${payload.field}"`);
+        console.log(`Field not found for field_type "${instruction.field_type}" and field "${instruction.field}"`);
     }
 }
 
-function setupLiveKitListeners() {
-    console.log("Attempting to set up LiveKit listeners...");
+async function initializeLiveKitConnection(livekitUrl, livekitToken) {
+    console.log("Attempting to connect to LiveKit with URL:", livekitUrl);
 
     if (typeof livekit === 'undefined') {
-        console.warn("LiveKit SDK (livekit global object) not found. Mocking message reception without actual LiveKit connection.");
-    } else {
-        console.log("LiveKit SDK found.");
-        // Actual LiveKit setup would go here.
+        console.error("LiveKit SDK (livekit global object) not found. Make sure it's loaded.");
+        return null;
     }
+    console.log("LiveKit SDK found.");
 
-    // Simulate receiving a message for 'id'
-    setTimeout(() => {
-        const mockPayloadId = { "field": "email", "value": "initial.email@example.com", "field_type": "id" };
-        console.log("Simulated received message (LiveKit):", mockPayloadId);
-        handleIncomingFieldInstruction(mockPayloadId);
-    }, 2000); 
+    const room = new livekit.Room();
 
-    // Simulate receiving a message for 'placeholder'
-    setTimeout(() => {
-        const mockPayloadPlaceholder = { "field": "your message", "value": "Initial message here.", "field_type": "placeholder" };
-        console.log("Simulated received message (LiveKit):", mockPayloadPlaceholder);
-        handleIncomingFieldInstruction(mockPayloadPlaceholder);
-    }, 3000);
-
-    // Simulate receiving a message for 'name' with should_submit: true
-    setTimeout(() => {
-        const mockPayloadNameSubmit = { "field": "name", "value": "Final Value Before Submit", "field_type": "name", "should_submit": true };
-        console.log("Simulated received message (LiveKit - with submit):", mockPayloadNameSubmit);
-        handleIncomingFieldInstruction(mockPayloadNameSubmit);
-    }, 4000); 
-
-    // Simulate a "field not found" case (after submission attempt)
-     setTimeout(() => {
-        const mockPayloadNotFound = { "field": "nonexistent", "value": "test", "field_type": "id" };
-        console.log("Simulated received message (LiveKit):", mockPayloadNotFound);
-        handleIncomingFieldInstruction(mockPayloadNotFound);
-    }, 5000);
+    try {
+        await room.connect(livekitUrl, livekitToken, {
+            // autoSubscribe: false, 
+        });
+        console.log('Successfully connected to LiveKit room.');
+        return room;
+    } catch (error) {
+        console.error('Failed to connect to LiveKit room:', error);
+        return null;
+    }
 }
 
-// Call the functions when the script loads
-detectFormFields();
-createAgentUI();
-setupLiveKitListeners();
+function setupDataChannelListeners(room) {
+    if (!room) {
+        console.error('Cannot set up DataChannel listeners: room object is null or undefined.');
+        return;
+    }
+
+    console.log('Setting up DataChannel listeners...');
+
+    room.on(livekit.RoomEvent.DataReceived, (payload, participant, kind, topic) => {
+        console.log('DataReceived event:', { payload, participant, kind, topic });
+
+        try {
+            const textDecoder = new TextDecoder();
+            const jsonString = textDecoder.decode(payload);
+            const instruction = JSON.parse(jsonString);
+
+            console.log('Decoded instruction:', instruction);
+            handleIncomingFieldInstruction(instruction);
+        } catch (e) {
+            console.error('Failed to decode or parse data message:', e);
+        }
+    });
+
+    console.log('DataChannel listeners set up.');
+}
+
+
+// Initialize the application
+(async () => {
+    // --- Configuration Section ---
+    
+    // URL of the voice agent's web interface to be loaded in the iframe.
+    // Example: 'http://localhost:3000' or 'https://your-agent-ui-domain.com'
+    const AGENT_UI_URL = 'https://example.com'; // TODO: Replace with your actual agent UI URL.
+
+    // WebSocket URL of your LiveKit server.
+    // Example: 'wss://your-livekit-instance.com'
+    const LIVEKIT_URL = 'wss://your-livekit-server-placeholder.com'; // TODO: Replace with your LiveKit server URL.
+
+    // IMPORTANT: LIVEKIT_TOKEN must be dynamically fetched from your secure backend.
+    // Your backend should use the LiveKit Server SDK (with API Key & Secret)
+    // to generate a short-lived token for this specific client.
+    // Do NOT hardcode a static token here for production use.
+    // Example backend endpoint: '/api/get-livekit-token?userId=...'
+    const LIVEKIT_TOKEN = 'placeholder-dynamic-token'; // TODO: Replace with token fetching logic or a valid token for development.
+
+    // --- End Configuration Section ---
+
+    detectFormFields();
+    createAgentUI(AGENT_UI_URL); 
+
+    window.currentLiveKitRoom = await initializeLiveKitConnection(LIVEKIT_URL, LIVEKIT_TOKEN);
+    
+    if (window.currentLiveKitRoom) {
+        console.log('LiveKit Room object ready for data channel setup.');
+        setupDataChannelListeners(window.currentLiveKitRoom);
+    } else {
+        console.error('Cannot set up DataChannel listeners, room not available.');
+    }
+})();
